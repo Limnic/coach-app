@@ -346,6 +346,7 @@ export default function AthleteDetailPage() {
                 protein={150}
                 carbs={120}
                 fat={53}
+                calories={1557}
               />
             </div>
 
