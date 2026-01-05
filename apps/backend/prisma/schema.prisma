@@ -1,0 +1,646 @@
+// ScaleFit Database Schema
+// PostgreSQL + Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & AUTHENTICATION
+// ============================================
+
+enum UserRole {
+  ATHLETE
+  COACH
+  ADMIN
+}
+
+enum Goal {
+  WEIGHT_LOSS
+  WEIGHT_GAIN
+  MAINTENANCE
+  BODY_RECOMP
+}
+
+enum ActivityLevel {
+  SEDENTARY        // 1.2
+  LIGHTLY_ACTIVE   // 1.375
+  MODERATELY_ACTIVE // 1.55
+  VERY_ACTIVE      // 1.725
+  EXTREMELY_ACTIVE // 1.9
+}
+
+enum SubscriptionStatus {
+  FREE
+  PRO
+  ELITE
+  CANCELLED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum UnitSystem {
+  METRIC   // kg, cm
+  IMPERIAL // lbs, in
+}
+
+model User {
+  id                  String             @id @default(cuid())
+  email               String             @unique
+  passwordHash        String
+  firstName           String
+  lastName            String
+  role                UserRole           @default(ATHLETE)
+  
+  // Physical Stats
+  gender              Gender?
+  dateOfBirth         DateTime?
+  heightCm            Float?
+  currentWeightKg     Float?
+  targetWeightKg      Float?
+  
+  // Fitness Profile
+  goal                Goal?
+  activityLevel       ActivityLevel?
+  
+  // Subscription
+  subscriptionStatus  SubscriptionStatus @default(FREE)
+  stripeCustomerId    String?
+  stripeSubscriptionId String?
+  
+  // Preferences
+  unitSystem          UnitSystem         @default(METRIC)
+  timezone            String             @default("UTC")
+  language            String             @default("en")
+  
+  // Timestamps
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  lastActiveAt        DateTime           @default(now())
+  
+  // Relations - Athlete
+  coachId             String?
+  coach               User?              @relation("CoachAthletes", fields: [coachId], references: [id])
+  athletes            User[]             @relation("CoachAthletes")
+  
+  assignedWorkoutPlans   UserWorkoutPlan[]
+  assignedNutritionPlans UserNutritionPlan[]
+  workoutLogs         WorkoutLog[]
+  nutritionLogs       NutritionLog[]
+  checkIns            CheckIn[]
+  alerts              Alert[]
+  
+  // Relations - Coach
+  createdWorkoutPlans   WorkoutPlan[]
+  createdNutritionPlans NutritionPlan[]
+  createdTemplates      Template[]
+  
+  // Chat
+  sentMessages        Message[]          @relation("SentMessages")
+  receivedMessages    Message[]          @relation("ReceivedMessages")
+
+  @@index([coachId])
+  @@index([email])
+  @@index([role])
+}
+
+// ============================================
+// EXERCISE & WORKOUT ENGINE
+// ============================================
+
+enum MuscleGroup {
+  CHEST
+  BACK
+  SHOULDERS
+  BICEPS
+  TRICEPS
+  FOREARMS
+  CORE
+  QUADRICEPS
+  HAMSTRINGS
+  GLUTES
+  CALVES
+  FULL_BODY
+}
+
+enum EquipmentType {
+  BARBELL
+  DUMBBELL
+  CABLE
+  MACHINE
+  BODYWEIGHT
+  KETTLEBELL
+  RESISTANCE_BAND
+  CARDIO_MACHINE
+  OTHER
+}
+
+model SwapGroup {
+  id          String     @id @default(cuid())
+  name        String     // e.g., "Quad Dominant Compound"
+  description String?
+  exercises   Exercise[]
+  createdAt   DateTime   @default(now())
+}
+
+model Exercise {
+  id              String        @id @default(cuid())
+  name            String
+  description     String?
+  instructions    String?       // Step by step guide
+  videoUrl        String?       // S3/CloudFront URL
+  thumbnailUrl    String?
+  
+  targetMuscle    MuscleGroup
+  secondaryMuscles MuscleGroup[]
+  equipmentType   EquipmentType
+  
+  // Swap Logic
+  swapGroupId     String?
+  swapGroup       SwapGroup?    @relation(fields: [swapGroupId], references: [id])
+  
+  // Global vs Coach-specific
+  isGlobal        Boolean       @default(true)
+  createdById     String?
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  workoutExercises WorkoutExercise[]
+  workoutLogs      WorkoutLog[]
+
+  @@index([targetMuscle])
+  @@index([equipmentType])
+  @@index([swapGroupId])
+}
+
+model WorkoutPlan {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  difficulty  Int      @default(1) // 1-5
+  durationWeeks Int    @default(4)
+  
+  // Coach who created it
+  coachId     String
+  coach       User     @relation(fields: [coachId], references: [id])
+  
+  // Template flag for library
+  isTemplate  Boolean  @default(false)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  workouts    Workout[]
+  assignedTo  UserWorkoutPlan[]
+
+  @@index([coachId])
+  @@index([isTemplate])
+}
+
+model Workout {
+  id            String        @id @default(cuid())
+  name          String        // e.g., "Day 1 - Push"
+  dayOfWeek     Int?          // 1-7, null for flexible scheduling
+  weekNumber    Int           @default(1)
+  orderIndex    Int           @default(0)
+  notes         String?
+  
+  workoutPlanId String
+  workoutPlan   WorkoutPlan   @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
+  
+  exercises     WorkoutExercise[]
+  
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([workoutPlanId])
+}
+
+model WorkoutExercise {
+  id              String    @id @default(cuid())
+  orderIndex      Int       @default(0)
+  
+  sets            Int       @default(3)
+  repsMin         Int       @default(8)
+  repsMax         Int       @default(12)
+  restSeconds     Int       @default(90)
+  rpe             Float?    // Rate of Perceived Exertion (1-10)
+  tempo           String?   // e.g., "3-1-2-0"
+  notes           String?
+  
+  workoutId       String
+  workout         Workout   @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  
+  exerciseId      String
+  exercise        Exercise  @relation(fields: [exerciseId], references: [id])
+  
+  createdAt       DateTime  @default(now())
+
+  @@index([workoutId])
+  @@index([exerciseId])
+}
+
+model UserWorkoutPlan {
+  id              String      @id @default(cuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  workoutPlanId   String
+  workoutPlan     WorkoutPlan @relation(fields: [workoutPlanId], references: [id])
+  
+  startDate       DateTime    @default(now())
+  endDate         DateTime?
+  isActive        Boolean     @default(true)
+  currentWeek     Int         @default(1)
+  
+  createdAt       DateTime    @default(now())
+
+  @@unique([userId, workoutPlanId])
+  @@index([userId])
+}
+
+model WorkoutLog {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  exerciseId      String
+  exercise        Exercise  @relation(fields: [exerciseId], references: [id])
+  
+  setNumber       Int
+  weightKg        Float
+  repsPerformed   Int
+  rpe             Float?    // Actual RPE for the set
+  notes           String?
+  
+  completedAt     DateTime  @default(now())
+
+  @@index([userId, exerciseId])
+  @@index([userId, completedAt])
+}
+
+// ============================================
+// NUTRITION ENGINE
+// ============================================
+
+model FoodItem {
+  id              String    @id @default(cuid())
+  name            String
+  brand           String?
+  barcode         String?
+  
+  // Per 100g
+  caloriesPer100g Float
+  proteinPer100g  Float
+  carbsPer100g    Float
+  fatPer100g      Float
+  fiberPer100g    Float?
+  
+  // Categories
+  category        String?   // e.g., "Proteins", "Carbs", "Vegetables"
+  isVerified      Boolean   @default(false)
+  
+  // External API integration
+  externalId      String?   // Nutritionix/FatSecret ID
+  source          String?   // "nutritionix", "fatsecret", "manual"
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  mealPlanItems   MealPlanItem[]
+  nutritionLogs   NutritionLog[]
+  
+  // Food Swap equivalencies
+  swapEquivalencies FoodSwap[] @relation("OriginalFood")
+  swappableWith     FoodSwap[] @relation("SwapFood")
+
+  @@index([name])
+  @@index([barcode])
+  @@index([category])
+}
+
+model FoodSwap {
+  id              String    @id @default(cuid())
+  
+  originalFoodId  String
+  originalFood    FoodItem  @relation("OriginalFood", fields: [originalFoodId], references: [id])
+  
+  swapFoodId      String
+  swapFood        FoodItem  @relation("SwapFood", fields: [swapFoodId], references: [id])
+  
+  // Swap based on which macro
+  swapByMacro     String    @default("carbs") // "carbs", "protein", "fat", "calories"
+  
+  createdAt       DateTime  @default(now())
+
+  @@unique([originalFoodId, swapFoodId])
+}
+
+model NutritionPlan {
+  id              String    @id @default(cuid())
+  name            String
+  description     String?
+  
+  // Daily Targets
+  dailyCalories   Int
+  proteinGrams    Int
+  carbGrams       Int
+  fatGrams        Int
+  
+  // Ratios (for display)
+  proteinRatio    Float     // e.g., 0.30 for 30%
+  carbRatio       Float
+  fatRatio        Float
+  
+  // Meal Structure
+  mealsPerDay     Int       @default(4)
+  
+  // Coach
+  coachId         String
+  coach           User      @relation(fields: [coachId], references: [id])
+  
+  isTemplate      Boolean   @default(false)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  meals           Meal[]
+  assignedTo      UserNutritionPlan[]
+
+  @@index([coachId])
+  @@index([isTemplate])
+}
+
+model Meal {
+  id              String        @id @default(cuid())
+  name            String        // e.g., "Breakfast", "Pre-Workout"
+  orderIndex      Int           @default(0)
+  timeSlot        String?       // e.g., "07:00"
+  
+  nutritionPlanId String
+  nutritionPlan   NutritionPlan @relation(fields: [nutritionPlanId], references: [id], onDelete: Cascade)
+  
+  items           MealPlanItem[]
+  
+  createdAt       DateTime      @default(now())
+
+  @@index([nutritionPlanId])
+}
+
+model MealPlanItem {
+  id              String    @id @default(cuid())
+  
+  mealId          String
+  meal            Meal      @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  
+  foodItemId      String
+  foodItem        FoodItem  @relation(fields: [foodItemId], references: [id])
+  
+  quantityGrams   Float
+  notes           String?
+  
+  createdAt       DateTime  @default(now())
+
+  @@index([mealId])
+}
+
+model UserNutritionPlan {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  nutritionPlanId String
+  nutritionPlan   NutritionPlan @relation(fields: [nutritionPlanId], references: [id])
+  
+  startDate       DateTime      @default(now())
+  endDate         DateTime?
+  isActive        Boolean       @default(true)
+  
+  // User-specific adjustments
+  adjustedCalories Int?
+  
+  createdAt       DateTime      @default(now())
+
+  @@unique([userId, nutritionPlanId])
+  @@index([userId])
+}
+
+model NutritionLog {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  foodItemId      String
+  foodItem        FoodItem  @relation(fields: [foodItemId], references: [id])
+  
+  mealType        String    // "breakfast", "lunch", "dinner", "snack"
+  quantityGrams   Float
+  
+  // Calculated values at time of logging
+  calories        Float
+  protein         Float
+  carbs           Float
+  fat             Float
+  
+  loggedAt        DateTime  @default(now())
+
+  @@index([userId, loggedAt])
+}
+
+// ============================================
+// ACCOUNTABILITY HUB (Check-ins)
+// ============================================
+
+enum CheckInStatus {
+  PENDING
+  SUBMITTED
+  REVIEWED
+  FLAGGED
+}
+
+model CheckIn {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Body Measurements
+  weightKg        Float
+  bodyFatPercent  Float?
+  
+  // Photos (S3 URLs)
+  photoFront      String?
+  photoSide       String?
+  photoBack       String?
+  
+  // Wellness Metrics (1-10)
+  sleepQuality    Int?
+  stressLevel     Int?
+  hungerLevel     Int?
+  energyLevel     Int?
+  
+  // Notes
+  athleteNotes    String?
+  coachNotes      String?
+  coachFeedback   String?
+  
+  // Status
+  status          CheckInStatus @default(SUBMITTED)
+  reviewedAt      DateTime?
+  
+  // Check-in window
+  periodStart     DateTime
+  periodEnd       DateTime
+  
+  submittedAt     DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+
+  @@index([userId])
+  @@index([status])
+  @@index([submittedAt])
+}
+
+// ============================================
+// SMART COACH ALERTS
+// ============================================
+
+enum AlertType {
+  INACTIVITY
+  WEIGHT_STAGNATION
+  MISSED_CHECKIN
+  GOAL_ACHIEVED
+  PLAN_ENDING
+  SUBSCRIPTION_ISSUE
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model Alert {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type            AlertType
+  severity        AlertSeverity @default(WARNING)
+  
+  title           String
+  message         String
+  data            Json?         // Additional context
+  
+  isRead          Boolean       @default(false)
+  isDismissed     Boolean       @default(false)
+  
+  createdAt       DateTime      @default(now())
+
+  @@index([userId, isRead])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// ============================================
+// MESSAGING (Real-time Chat)
+// ============================================
+
+model Message {
+  id              String    @id @default(cuid())
+  
+  senderId        String
+  sender          User      @relation("SentMessages", fields: [senderId], references: [id])
+  
+  receiverId      String
+  receiver        User      @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  
+  content         String
+  attachmentUrl   String?
+  
+  isRead          Boolean   @default(false)
+  readAt          DateTime?
+  
+  createdAt       DateTime  @default(now())
+
+  @@index([senderId, receiverId])
+  @@index([receiverId, isRead])
+  @@index([createdAt])
+}
+
+// ============================================
+// TEMPLATE LIBRARY (Coach Tools)
+// ============================================
+
+enum TemplateType {
+  WORKOUT
+  NUTRITION
+  SUPPLEMENT
+  CHECKIN_PROTOCOL
+}
+
+model Template {
+  id              String       @id @default(cuid())
+  name            String
+  description     String?
+  type            TemplateType
+  
+  coachId         String
+  coach           User         @relation(fields: [coachId], references: [id])
+  
+  // JSON content based on type
+  content         Json
+  
+  tags            String[]
+  isPublic        Boolean      @default(false)
+  usageCount      Int          @default(0)
+  
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([coachId])
+  @@index([type])
+  @@index([isPublic])
+}
+
+// ============================================
+// GROCERY LIST
+// ============================================
+
+model GroceryList {
+  id              String    @id @default(cuid())
+  userId          String
+  weekStartDate   DateTime
+  
+  items           GroceryItem[]
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, weekStartDate])
+}
+
+model GroceryItem {
+  id              String      @id @default(cuid())
+  groceryListId   String
+  groceryList     GroceryList @relation(fields: [groceryListId], references: [id], onDelete: Cascade)
+  
+  name            String
+  quantity        Float
+  unit            String      // "g", "kg", "pieces", "ml"
+  category        String      // "Proteins", "Carbs", "Vegetables", "Dairy"
+  
+  isChecked       Boolean     @default(false)
+  
+  createdAt       DateTime    @default(now())
+
+  @@index([groceryListId])
+}
+
