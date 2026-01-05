@@ -6,13 +6,13 @@ FROM base AS deps
 WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma/
-RUN npm ci --only=production && npm cache clean --force
+RUN npm install --omit=dev && npm cache clean --force
 
 # Build the source code
 FROM base AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 COPY . .
 RUN npx prisma generate
 RUN npm run build
