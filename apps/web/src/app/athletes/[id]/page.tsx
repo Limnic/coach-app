@@ -26,7 +26,7 @@ import {
   Camera,
   ChevronRight,
   FileDown,
-  Images,
+  Image,
   Eye,
   EyeOff,
   Mail,
@@ -227,7 +227,7 @@ export default function AthleteDetailPage() {
                 onClick={() => setShowPhotoComparison(true)}
                 className="btn-secondary py-2"
               >
-                <Images className="w-4 h-4 mr-2" />
+                <Image className="w-4 h-4 mr-2" />
                 Photos
               </button>
               <button 
