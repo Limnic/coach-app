@@ -126,18 +126,18 @@ const mockWorkoutVolume = [
 
 // Mock progress metrics
 const mockProgressMetrics = [
-  { metric: 'Strength', value: 75 },
-  { metric: 'Endurance', value: 60 },
-  { metric: 'Consistency', value: 85 },
-  { metric: 'Nutrition', value: 80 },
-  { metric: 'Recovery', value: 70 },
-  { metric: 'Flexibility', value: 55 },
+  { label: 'Strength', value: 75 },
+  { label: 'Endurance', value: 60 },
+  { label: 'Consistency', value: 85 },
+  { label: 'Nutrition', value: 80 },
+  { label: 'Recovery', value: 70 },
+  { label: 'Flexibility', value: 55 },
 ];
 
 // Mock activity data (last 12 weeks, 7 days each)
 const mockActivityData = Array.from({ length: 12 * 7 }, (_, i) => ({
   date: new Date(Date.now() - (12 * 7 - i) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-  intensity: Math.random() > 0.3 ? Math.floor(Math.random() * 4) + 1 : 0,
+  count: Math.random() > 0.3 ? Math.floor(Math.random() * 4) + 1 : 0,
 }));
 
 // Mock progress photos
@@ -353,7 +353,7 @@ export default function AthleteDetailPage() {
             {/* Charts Row 2 */}
             <div className="grid grid-cols-2 gap-6">
               <WorkoutVolumeChart data={mockWorkoutVolume} />
-              <ProgressRadar data={mockProgressMetrics} />
+              <ProgressRadar metrics={mockProgressMetrics} />
             </div>
 
             {/* Activity Heatmap */}
